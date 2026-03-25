@@ -650,73 +650,66 @@ def extract_bizbuysell_text(text_body):
     }
 
 # ==============================
-# ✅ BizBuySell (HTML) — New Buyer Lead Notification (FIXED)
+# ✅ BizBuySell NEW BUYER LEAD — FINAL FIX
 # ==============================
 def extract_bizbuysell_newbuyer_html(html_body):
 
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    def get_value(label):
-        try:
-            tag = soup.find(string=re.compile(label, re.I))
-            if tag:
-                td = tag.find_parent("td")
-                if td:
-                    next_td = td.find_next_sibling("td")
-                    if next_td:
-                        return next_td.get_text(strip=True)
-        except:
-            pass
-        return ""
+    data = {}
 
     # -----------------------------
-    # NAME
+    # LOOP TABLE ROWS (THIS IS KEY)
     # -----------------------------
-    name = get_value("Contact Name")
-    first_name, last_name = (name.split(" ", 1) if " " in name else (name, ""))
+    for row in soup.find_all("tr"):
+        cols = row.find_all("td")
 
-    # -----------------------------
-    # EMAIL
-    # -----------------------------
-    email = get_value("Contact Email")
+        if len(cols) != 2:
+            continue
 
-    # -----------------------------
-    # PHONE
-    # -----------------------------
-    raw_phone = get_value("Contact Phone")
-    phone = normalize_phone_us_e164(raw_phone)
+        label = cols[0].get_text(strip=True).lower()
+        value_cell = cols[1]
+
+        # --- HANDLE EMAIL ---
+        if "email" in label:
+            a = value_cell.find("a", href=True)
+            if a:
+                data["email"] = a.get_text(strip=True)
+            else:
+                data["email"] = value_cell.get_text(strip=True)
+
+        # --- HANDLE PHONE ---
+        elif "phone" in label:
+            a = value_cell.find("a", href=True)
+            raw = a.get_text(strip=True) if a else value_cell.get_text(strip=True)
+            data["phone"] = normalize_phone_us_e164(raw)
+
+        # --- HANDLE NAME ---
+        elif "contact name" in label:
+            name = value_cell.get_text(strip=True)
+            if " " in name:
+                data["first_name"], data["last_name"] = name.split(" ", 1)
+            else:
+                data["first_name"] = name
+                data["last_name"] = ""
+
+        # --- COMMENTS ---
+        elif "comments" in label:
+            data["comments"] = clean_comments_block(value_cell.get_text(" ", strip=True))
 
     # -----------------------------
     # LISTING ID → REF ID
     # -----------------------------
     ref_id = ""
-    try:
-        m = re.search(r"Listing ID.*?(\d+)", soup.get_text(" "), re.I)
-        if m:
-            ref_id = m.group(1)
-    except:
-        pass
-
-    # -----------------------------
-    # COMMENTS (FULL BLOCK)
-    # -----------------------------
-    comments = ""
-    try:
-        tag = soup.find(string=re.compile("Comments", re.I))
-        if tag:
-            td = tag.find_parent("td")
-            if td:
-                next_td = td.find_next_sibling("td")
-                if next_td:
-                    comments = clean_comments_block(next_td.get_text(" ", strip=True))
-    except:
-        pass
+    m = re.search(r"Listing ID.*?(\d+)", soup.get_text(" "), re.I)
+    if m:
+        ref_id = m.group(1)
 
     return {
-        "first_name": first_name,
-        "last_name": last_name,
-        "email": email,
-        "phone": phone,
+        "first_name": data.get("first_name", ""),
+        "last_name": data.get("last_name", ""),
+        "email": data.get("email", ""),
+        "phone": data.get("phone", ""),
         "ref_id": ref_id,
         "listing_id": "",
         "headline": "",
@@ -727,7 +720,7 @@ def extract_bizbuysell_newbuyer_html(html_body):
         "contact_zip": "",
         "investment_amount": "",
         "purchase_timeline": "",
-        "comments": comments,
+        "comments": data.get("comments", ""),
         "listing_url": "",
         "services_interested_in": "",
         "heard_about": ""
